@@ -12,15 +12,13 @@ import           Formatting (build, sformat, (%))
 import           Serokell.Util.Text (listJsonIndent)
 
 import           Pos.Chain.Genesis as Genesis (Config (..),
-                     configBlkSecurityParam, configBlockVersionData,
-                     configEpochSlots)
+                     configBlockVersionData, configEpochSlots)
 import           Pos.Chain.Update (ConfirmedProposalState (..),
                      SoftwareVersion (..), UpdateConfiguration,
                      UpdateProposal (..), curSoftwareVersion)
 import           Pos.DB.Update (UpdateContext (..), getConfirmedProposals,
                      processNewSlot)
 import           Pos.Infra.Diffusion.Types (Diffusion)
-import           Pos.Infra.Recovery.Info (recoveryCommGuard)
 import           Pos.Infra.Shutdown (triggerShutdown)
 import           Pos.Infra.Slotting.Util (ActionTerminationPolicy (..),
                      OnNewSlotParams (..), defaultOnNewSlotParams, onNewSlot)
@@ -35,7 +33,6 @@ usWorkers
 usWorkers genesisConfig = [ ("us new slot", processNewSlotWorker), ("us check updates", checkForUpdateWorker) ]
   where
     epochSlots = configEpochSlots genesisConfig
-    k = configBlkSecurityParam genesisConfig
     -- These are two separate workers. We want them to run in parallel
     -- and not affect each other.
     processNewSlotParams = defaultOnNewSlotParams
@@ -43,13 +40,13 @@ usWorkers genesisConfig = [ ("us new slot", processNewSlotWorker), ("us check up
             "Update.processNewSlot"
         }
     processNewSlotWorker _ =
-        onNewSlot epochSlots processNewSlotParams $ \s ->
-            recoveryCommGuard k "processNewSlot in US" $ do
-                logDebug "Updating slot for US..."
-                processNewSlot (configBlockVersionData genesisConfig) s
+        onNewSlot epochSlots processNewSlotParams $ \s -> do
+            logDebug "processNewSlotWorker: Updating slot for US... (recoveryGuard removed)"
+            processNewSlot (configBlockVersionData genesisConfig) s
     checkForUpdateWorker _ =
-        onNewSlot epochSlots defaultOnNewSlotParams $ \_ ->
-            recoveryCommGuard k "checkForUpdate" (checkForUpdate @ctx @m)
+        onNewSlot epochSlots defaultOnNewSlotParams $ \_ -> do
+            logDebug "checkForUpdateWorker... (recoveryGuard removed)"
+            checkForUpdate @ctx @m
 
 checkForUpdate ::
        forall ctx m. UpdateMode ctx m
