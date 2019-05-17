@@ -106,7 +106,7 @@ processGenesisBlock genesisConfig epoch = do
         -- Otherwise we choose version to adopt, adopt it, remove all
         -- versions which no longer can be adopted and only then move
         -- unstable to stable.
-        Just (chooseToAdopt -> toAdopt) -> adoptAndFinish competing toAdopt
+        Just x -> adoptAndFinish competing $ chooseToAdopt x
     -- In the end we also update slotting data to the most recent state.
     updateSlottingData (configEpochSlots genesisConfig) epoch
     setEpochProposers mempty
