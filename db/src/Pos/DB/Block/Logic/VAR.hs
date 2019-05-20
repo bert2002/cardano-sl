@@ -233,6 +233,7 @@ verifyAndApplyBlocks genesisConfig txpConfig curSlot rollback blocks = runExcept
                     logDebug $ "Rolling: Calculating LRC if needed for epoch "
                                 <> pretty epochIndex
                     lift $ lrcSingleShot genesisConfig epochIndex
+                    -- Would be nice to be able to call processGenesisBlock from here
 
         logDebug "Rolling: verifying"
         lift (verifyBlocksPrefix genesisConfig curSlot prefix) >>= \case

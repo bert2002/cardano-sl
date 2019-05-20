@@ -196,9 +196,11 @@ verifyBlock ::
     -> Bool
     -> UpdateBlock
     -> m USUndo
-verifyBlock genesisConfig _ (ComponentBlockGenesis genBlk) =
+verifyBlock genesisConfig _ (ComponentBlockGenesis genBlk) = do
+    logDebug "Pos.DB.Update.Logic.Global.verifyBlock: ComponentBlockGenesis"
     execRollT $ processGenesisBlock genesisConfig (genBlk ^. epochIndexL)
 verifyBlock genesisConfig verifyAllIsKnown (ComponentBlockMain header payload) = do
+    logDebug "Pos.DB.Update.Logic.Global.verifyBlock: ComponentBlockMain"
     lastAdopted <- do
         -- During the `Original` era, `processGenesisBlock` is typically
         -- called from `verifyBlock` when provided with a
