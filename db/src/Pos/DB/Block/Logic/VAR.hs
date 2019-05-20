@@ -21,6 +21,7 @@ import           Control.Exception.Safe (bracketOnError)
 import           Control.Lens (_Wrapped)
 import           Control.Monad.Except (ExceptT (ExceptT),
                      MonadError (throwError), runExceptT, withExceptT)
+import qualified Data.List as List
 import qualified Data.List.NonEmpty as NE
 import           Formatting (sformat, shown, (%))
 
@@ -31,7 +32,7 @@ import           Pos.Chain.Genesis as Genesis (Config (..), configEpochSlots)
 import           Pos.Chain.Txp (TxpConfiguration)
 import           Pos.Chain.Update (ConsensusEra (..), PollModifier,
                      UpdateConfiguration)
-import           Pos.Core (epochIndexL)
+import           Pos.Core (epochIndexL, getEpochIndex)
 import           Pos.Core.Chrono (NE, NewestFirst (..), OldestFirst (..),
                      toNewestFirst, toOldestFirst)
 import           Pos.Core.Reporting (HasMisbehaviorMetrics)
@@ -217,6 +218,10 @@ verifyAndApplyBlocks genesisConfig txpConfig curSlot rollback blocks = runExcept
         -> (OldestFirst NE Block, OldestFirst [] Block)
         -> ExceptT ApplyBlocksException m (HeaderHash, NewestFirst [] Blund)
     rollingVerifyAndApply tipHeader blunds (prefix, suffix) = do
+        logDebug $ sformat ("rollingVerifyAndApply: prefix epochs: " % shown)
+                ( List.nub . map (getEpochIndex . view epochIndexL) . toList $ getOldestFirst prefix
+                , List.nub . map (getEpochIndex . view epochIndexL) . toList $ getOldestFirst suffix
+                )
         let prefixHead = prefix ^. _Wrapped . _neHead
             epochIndex = prefixHead ^. epochIndexL
 
@@ -233,6 +238,7 @@ verifyAndApplyBlocks genesisConfig txpConfig curSlot rollback blocks = runExcept
                     logDebug $ "Rolling: Calculating LRC if needed for epoch "
                                 <> pretty epochIndex
                     lift $ lrcSingleShot genesisConfig epochIndex
+                    -- Would be nice to be able to call processGenesisBlock from here
 
         logDebug "Rolling: verifying"
         lift (verifyBlocksPrefix genesisConfig curSlot prefix) >>= \case

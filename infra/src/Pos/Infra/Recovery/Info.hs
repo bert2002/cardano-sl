@@ -131,13 +131,17 @@ recoveryInProgress epochSlots =
 -- which shouldn't do anything while we are not synchronized.
 recoveryCommGuard
     :: (MonadRecoveryInfo ctx m, WithLogger m) => BlockCount -> Text -> m () -> m ()
-recoveryCommGuard k actionName action =
-    getSyncStatus (kEpochSlots k) (kSlotSecurityParam k) >>= \case
-        SSKindaSynced -> action
-        status ->
-            logDebug $
-            sformat ("recoveryCommGuard: we are skipping action '"%stext%
-                     "', because "%build) actionName status
+recoveryCommGuard k actionName action = do
+    s <- getSyncStatus (kEpochSlots k) (kSlotSecurityParam k)
+    logDebug $ sformat ("recoveryCommGuard (Erik) : " % build) s
+    if True
+      then action
+      else case s of
+            SSKindaSynced -> action
+            status ->
+                logDebug $
+                sformat ("recoveryCommGuard: we are skipping action '"%stext%
+                         "', because "%build) actionName status
 
 -- | This function checks that last known block is more than K slots
 -- away from the current slot, or current slot isn't known. It also
