@@ -23,7 +23,7 @@ import           Control.Monad.Except (ExceptT (ExceptT),
                      MonadError (throwError), runExceptT, withExceptT)
 import qualified Data.List as List
 import qualified Data.List.NonEmpty as NE
-import           Formatting (build, sformat, shown, (%))
+import           Formatting (sformat, shown, (%))
 
 import           Pos.Chain.Block (ApplyBlocksException (..), Block, BlockHeader (..), Blund,
                      HeaderHash, RollbackException (..), Undo (..),
@@ -47,11 +47,11 @@ import           Pos.DB.Block.Lrc (LrcModeFull, lrcSingleShot)
 import           Pos.DB.Block.Slog.Logic (ShouldCallBListener (..),
                      mustDataBeKnown, slogVerifyBlocks)
 import           Pos.DB.Delegation (dlgVerifyBlocks)
-import qualified Pos.DB.GState.Common as GS (getTip)
+import qualified Pos.DB.GState.Common as GS (getTip, writeBatchGState)
 import           Pos.DB.Ssc (sscVerifyBlocks)
 import           Pos.DB.Txp.Settings
                      (TxpGlobalSettings (TxpGlobalSettings, tgsVerifyBlocks))
-import           Pos.DB.Update (getAdoptedBV, getConsensusEra, usVerifyBlocks)
+import           Pos.DB.Update (getAdoptedBV, getConsensusEra, usApplyBlocks, usVerifyBlocks)
 import           Pos.Util (neZipWith4, spanSafe, _neHead)
 import           Pos.Util.Util (HasLens (..))
 import           Pos.Util.Wlog (logDebug)
@@ -241,8 +241,8 @@ verifyAndApplyBlocks genesisConfig txpConfig curSlot rollback blocks = runExcept
 
                     -- Apply just the update payload of the first block of the next epoch.
                     let ublocks = OldestFirst $ toUpdateBlock (NE.head $ getOldestFirst prefix) :| []
-                    void . withExceptT (ApplyBlocksPollError . sformat build) . ExceptT $
-                                usVerifyBlocks genesisConfig False ublocks
+                    ops <- lift $ usApplyBlocks genesisConfig ublocks Nothing
+                    GS.writeBatchGState ops
                     era1 <- getConsensusEra
                     logDebug $ sformat ("rollingVerifyAndApply: after update state applied era is " % shown) era1
 
