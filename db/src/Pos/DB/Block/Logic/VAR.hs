@@ -23,7 +23,7 @@ import           Control.Monad.Except (ExceptT (ExceptT),
                      MonadError (throwError), runExceptT, withExceptT)
 import qualified Data.List as List
 import qualified Data.List.NonEmpty as NE
-import           Formatting (sformat, shown, (%))
+import           Formatting (build, sformat, shown, (%))
 
 import           Pos.Chain.Block (ApplyBlocksException (..), Block, BlockHeader (..), Blund,
                      HeaderHash, RollbackException (..), Undo (..),
@@ -238,7 +238,13 @@ verifyAndApplyBlocks genesisConfig txpConfig curSlot rollback blocks = runExcept
                     logDebug $ "Rolling: Calculating LRC if needed for epoch "
                                 <> pretty epochIndex
                     lift $ lrcSingleShot genesisConfig epochIndex
-                    -- Would be nice to be able to call processGenesisBlock from here
+
+                    -- Apply just the update payload of the first block of the next epoch.
+                    let ublocks = OldestFirst $ toUpdateBlock (NE.head $ getOldestFirst prefix) :| []
+                    void . withExceptT (ApplyBlocksPollError . sformat build) . ExceptT $
+                                usVerifyBlocks genesisConfig False ublocks
+                    era1 <- getConsensusEra
+                    logDebug $ sformat ("rollingVerifyAndApply: after update state applied era is " % shown) era1
 
         logDebug "Rolling: verifying"
         lift (verifyBlocksPrefix genesisConfig curSlot prefix) >>= \case

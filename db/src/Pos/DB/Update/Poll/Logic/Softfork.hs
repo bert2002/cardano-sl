@@ -14,7 +14,7 @@ import           Control.Monad.Except (MonadError, throwError)
 import qualified Data.HashSet as HS
 import qualified Data.List.NonEmpty as NE
 import           Data.Tagged (Tagged (..))
-import           Formatting (build, sformat, (%))
+import           Formatting (build, sformat, shown, (%))
 import           Serokell.Util.Text (listJson)
 
 import           Pos.Chain.Block (HeaderHash)
@@ -23,14 +23,14 @@ import           Pos.Chain.Genesis as Genesis (Config (..),
 import           Pos.Chain.Update (BlockVersion, BlockVersionData (..),
                      BlockVersionState (..), MonadPoll (..),
                      MonadPollRead (..), PollVerFailure (..),
-                     SoftforkRule (..))
+                     SoftforkRule (..), consensusEraBVD)
 import           Pos.Core (BlockCount, Coin, EpochIndex, SlotId (..),
                      StakeholderId, crucialSlot, sumCoins, unsafeIntegerToCoin)
 import           Pos.DB.Update.Poll.Logic.Base (ConfirmedEpoch, CurEpoch,
                      adoptBlockVersion, calcSoftforkThreshold, canBeAdoptedBV,
                      updateSlottingData)
 import           Pos.Util.AssertMode (inAssertMode)
-import           Pos.Util.Wlog (logInfo)
+import           Pos.Util.Wlog (logInfo, logDebug)
 
 -- | Record the fact that main block with given version and leader has
 -- been issued by for the given slot.
@@ -85,30 +85,45 @@ processGenesisBlock
     -> EpochIndex
     -> m ()
 processGenesisBlock genesisConfig epoch = do
+    logDebug "****************** processGenesisBlock ******************"
     -- First thing to do is to obtain values threshold for softfork
     -- resolution rule check.
+    logDebug "processGenesisBlock: A"
     totalStake <- note (PollUnknownStakes epoch)
         =<< getEpochTotalStake (configBlockVersionData genesisConfig) epoch
-    BlockVersionData {..} <- getAdoptedBVData
+    logDebug "processGenesisBlock: B"
+    bvd <- getAdoptedBVData
     -- Then we take all competing BlockVersions and actually check softfork
     -- resolution rule for them.
+    logDebug $ sformat ("processGenesisBlock: C " % shown) (consensusEraBVD bvd)
     competing <- getCompetingBVStates
     logCompetingBVStates competing
-    let checkThreshold' = checkThreshold totalStake bvdSoftforkRule
+    logDebug "processGenesisBlock: D"
+    let checkThreshold' = checkThreshold totalStake $ bvdSoftforkRule bvd
     toAdoptList <- catMaybes <$> mapM checkThreshold' competing
     logWhichCanBeAdopted $ map fst toAdoptList
+    logDebug "processGenesisBlock: E"
     -- We also do sanity check in assert mode just in case.
     inAssertMode $ sanityCheckCompeting $ map fst competing
     case nonEmpty toAdoptList of
         -- If there is nothing to adopt, we move unstable issuers to stable
         -- and that's all.
-        Nothing -> mapM_ moveUnstable competing
+        Nothing -> do
+            logDebug "processGenesisBlock: Nothing to adopt"
+            mapM_ moveUnstable competing
         -- Otherwise we choose version to adopt, adopt it, remove all
         -- versions which no longer can be adopted and only then move
         -- unstable to stable.
-        Just x  -> adoptAndFinish competing $ chooseToAdopt x
+        Just x  ->  do
+            oldEra <- consensusEraBVD <$> getAdoptedBVData
+            logDebug $ sformat ("processGenesisBlock: Old era is " % shown) oldEra
+            adoptAndFinish competing $ chooseToAdopt x
+            newEra <- consensusEraBVD <$> getAdoptedBVData
+            logDebug $ sformat ("processGenesisBlock: Adopting era " % shown) newEra
     -- In the end we also update slotting data to the most recent state.
+    logDebug "processGenesisBlock: G"
     updateSlottingData (configEpochSlots genesisConfig) epoch
+    logDebug "processGenesisBlock: H"
     setEpochProposers mempty
   where
     checkThreshold ::

@@ -51,6 +51,7 @@ data ApplyBlocksException
         HeaderHash -- attempted tip
     | ApplyBlocksVerifyFailure VerifyBlocksException
     | ApplyBlocksError Text -- other error (not covered by constructors above)
+    | ApplyBlocksPollError Text
     deriving (Show, Generic)
 
 instance NFData ApplyBlocksException
@@ -61,6 +62,7 @@ renderApplyBlocksException = \case
         tipMismatchMsg s tip attemptedTip
     ApplyBlocksVerifyFailure e -> renderVerifyBlocksException e
     ApplyBlocksError e -> fromText e
+    ApplyBlocksPollError e -> fromText e
 
 instance Exception ApplyBlocksException where
     displayException = toString . pretty
