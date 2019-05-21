@@ -28,11 +28,12 @@ import           Data.Default (def)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as List (find)
+import           Formatting (sformat, shown, (%))
 import qualified Ether
 
 import           Pos.Chain.Update.ApplicationName (ApplicationName)
 import           Pos.Chain.Update.BlockVersion (BlockVersion)
-import           Pos.Chain.Update.BlockVersionData (BlockVersionData)
+import           Pos.Chain.Update.BlockVersionData (BlockVersionData, consensusEraBVD)
 import           Pos.Chain.Update.BlockVersionModifier (applyBVM)
 import           Pos.Chain.Update.Poll.Modifier (PollModifier (..),
                      pmActivePropsL, pmAdoptedBVFullL, pmBVsL, pmConfirmedL,
@@ -53,7 +54,7 @@ import           Pos.Core.Slotting (SlottingData)
 import           Pos.Crypto (hash)
 import qualified Pos.Util.Modifier as MM
 import           Pos.Util.Util (ether)
-import           Pos.Util.Wlog (WithLogger, logWarning)
+import           Pos.Util.Wlog (WithLogger, logWarning, logDebug)
 
 ----------------------------------------------------------------------------
 -- Read-only
@@ -103,7 +104,10 @@ class (Monad m, WithLogger m) => MonadPollRead m where
     getAdoptedBV = fst <$> getAdoptedBVFull
 
     getAdoptedBVData :: m BlockVersionData
-    getAdoptedBVData = snd <$> getAdoptedBVFull
+    getAdoptedBVData = do
+        bvd <- snd <$> getAdoptedBVFull
+        logDebug $ sformat ("MonadPollRead: " % shown) (consensusEraBVD bvd)
+        pure bvd
 
 instance {-# OVERLAPPABLE #-}
     (MonadPollRead m, MonadTrans t, Monad (t m), WithLogger (t m)) =>
@@ -353,7 +357,8 @@ instance (MonadPollRead m) =>
         case bvs of
             Nothing ->
                 logWarning $ "setAdoptedBV: unknown version " <> pretty bv -- can't happen actually
-            Just bvm ->
+            Just bvm -> do
+                logDebug "MonadPoll: updating BVD"
                 pmAdoptedBVFullL .= Just (bv, applyBVM (bvsModifier bvm) adoptedBVD)
     setLastConfirmedSV SoftwareVersion {..} = ether $
         pmConfirmedL %= MM.insert svAppName svNumber
