@@ -34,7 +34,7 @@ import           Pos.Core.Chrono (NE, NewestFirst, OldestFirst (..))
 import           Pos.Core.Exception (reportFatalError)
 import           Pos.Core.Reporting (MonadReporting)
 import           Pos.Core.Slotting (EpochIndex (..), MonadSlotsData,
-                     SlotId (..), SlottingData, slottingVar)
+                     SlottingData, slottingVar)
 import qualified Pos.DB.BatchOp as DB
 import qualified Pos.DB.BlockIndex as DB (getTipHeader)
 import qualified Pos.DB.Class as DB
@@ -214,17 +214,30 @@ verifyBlock genesisConfig verifyAllIsKnown (ComponentBlockMain header payload) =
         -- be adopted during OBFT.
         initialEra <- getConsensusEra
         initialBV  <- getAdoptedBV
+        tipHeader <- DB.getTipHeader
         case initialEra of
             OBFT _ -> do
-                let slotId     = header ^. headerSlotL
-                    epochIndex = siEpoch slotId
-                tipHeader <- DB.getTipHeader
+                let epochIndex = header ^. epochIndexL
                 whenEpochBoundaryObft epochIndex tipHeader $ \ei -> do
                     logDebug $ "usVerifyBlocks OBFT: We're on epoch boundary. Running processGenesisBlock"
                     processGenesisBlock genesisConfig ei
                 getAdoptedBV
 
-            Original -> pure initialBV
+            Original ->
+                case tipHeader of
+                    BlockHeaderGenesis _ -> pure initialBV
+
+                    BlockHeaderMain mb ->
+                        if mb ^. epochIndexL == (header ^. epochIndexL) - 1
+                            then do
+                                -- TODO: Factor out common code.
+                                let epochIndex = header ^. epochIndexL
+                                whenEpochBoundaryObft epochIndex tipHeader $ \ei -> do
+                                    logDebug $ "usVerifyBlocks OBFT 2: We're on epoch boundary. Running processGenesisBlock"
+                                    processGenesisBlock genesisConfig ei
+                                getAdoptedBV
+
+                            else pure initialBV
 
     execRollT $ do
         verifyAndApplyUSPayload

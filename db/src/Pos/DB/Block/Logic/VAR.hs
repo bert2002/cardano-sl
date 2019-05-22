@@ -24,7 +24,7 @@ import           Control.Monad.Except (ExceptT (ExceptT),
 import qualified Data.List.NonEmpty as NE
 import           Formatting (sformat, shown, (%))
 
-import           Pos.Chain.Block (ApplyBlocksException (..), Block, Blund,
+import           Pos.Chain.Block (ApplyBlocksException (..), Block, BlockHeader (..), Blund,
                      HeaderHash, RollbackException (..), Undo (..),
                      VerifyBlocksException (..), headerHashG, prevBlockL)
 import           Pos.Chain.Genesis as Genesis (Config (..), configEpochSlots)
@@ -41,15 +41,16 @@ import           Pos.DB.Block.Logic.Internal (BypassSecurityCheck (..),
                      MonadMempoolNormalization, applyBlocksUnsafe,
                      normalizeMempool, rollbackBlocksUnsafe, toSscBlock,
                      toTxpBlock, toUpdateBlock)
+import           Pos.DB.BlockIndex (getTipHeader)
 import           Pos.DB.Block.Lrc (LrcModeFull, lrcSingleShot)
 import           Pos.DB.Block.Slog.Logic (ShouldCallBListener (..),
                      mustDataBeKnown, slogVerifyBlocks)
 import           Pos.DB.Delegation (dlgVerifyBlocks)
-import qualified Pos.DB.GState.Common as GS (getTip)
+import qualified Pos.DB.GState.Common as GS (getTip, writeBatchGState)
 import           Pos.DB.Ssc (sscVerifyBlocks)
 import           Pos.DB.Txp.Settings
                      (TxpGlobalSettings (TxpGlobalSettings, tgsVerifyBlocks))
-import           Pos.DB.Update (getAdoptedBV, getConsensusEra, usVerifyBlocks)
+import           Pos.DB.Update (getAdoptedBV, getConsensusEra, usApplyBlocks, usVerifyBlocks)
 import           Pos.Util (neZipWith4, spanSafe, _neHead)
 import           Pos.Util.Util (HasLens (..))
 import           Pos.Util.Wlog (logDebug)
@@ -214,11 +215,32 @@ verifyAndApplyBlocks genesisConfig txpConfig curSlot rollback blocks = runExcept
         -> ExceptT ApplyBlocksException m (HeaderHash, NewestFirst [] Blund)
     rollingVerifyAndApply blunds (prefix, suffix) = do
         let prefixHead = prefix ^. _Wrapped . _neHead
+            epochIndex = prefixHead ^. epochIndexL
+
         when (isLeft prefixHead) $ do
-            let epochIndex = prefixHead ^. epochIndexL
+            -- This is an EEB.
             logDebug $ "Rolling: Calculating LRC if needed for epoch "
                        <> pretty epochIndex
             lift $ lrcSingleShot genesisConfig epochIndex
+
+        -- This is a somewhat savage hack to make sure the adopted block version
+        -- data is updated on the first block of an OBFT epoch (which may not
+        -- be slot 0 of the new epoch).
+        tipHeader <- getTipHeader
+        case tipHeader of
+            BlockHeaderGenesis _ -> pure ()
+
+            BlockHeaderMain mb ->
+                when (mb ^. epochIndexL == epochIndex - 1) $ do
+                    logDebug $ "Rolling: Calculating OBFT LRC if needed for epoch "
+                                <> pretty epochIndex
+                    lift $ lrcSingleShot genesisConfig epochIndex
+
+                    -- Apply just the update payload of the first block of the next epoch.
+                    let ublocks = OldestFirst $ toUpdateBlock (NE.head $ getOldestFirst prefix) :| []
+                    ops <- lift $ usApplyBlocks genesisConfig ublocks Nothing
+                    GS.writeBatchGState ops
+
         logDebug "Rolling: verifying"
         lift (verifyBlocksPrefix genesisConfig curSlot prefix) >>= \case
             Left (ApplyBlocksVerifyFailure -> failure)
