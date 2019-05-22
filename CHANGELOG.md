@@ -1,4 +1,10 @@
 # CHANGELOG
+## Cardano SL 3.0.2
+
+### Fixes
+
+- Max Transaction Size improvement to calculate size of tx before sending [#4112](https://github.com/input-output-hk/cardano-sl/pull/4131))
+
 
 ## Cardano SL 3.0.1
 
